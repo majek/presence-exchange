@@ -17,8 +17,8 @@ headers:
     queue     str   The name of the queue being bound/unbound
     key	      str   The binding key supplied at the time of binding
 
-Messages published to `x-presence` exchanges are dropped, rather than
-sent through to bound queues.
+Messages published to `x-presence` exchanges are sent to all the
+bound queues - just like in a fanout exchange.
 
 ## Licensing
 

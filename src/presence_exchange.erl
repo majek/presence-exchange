@@ -22,48 +22,51 @@
 -module(presence_exchange).
 -include_lib("rabbit_common/include/rabbit.hrl").
 
--define(EXCHANGE_TYPE_BIN, <<"x-presence">>).
-
--rabbit_boot_step({?MODULE,
-                   [{mfa, {rabbit_exchange_type_registry, register, [?EXCHANGE_TYPE_BIN, ?MODULE]}},
-                    {requires, rabbit_exchange_type_registry},
-                    {enables, exchange_recovery}]}).
-
 -behaviour(rabbit_exchange_type).
 
--export([description/0, publish/2]).
--export([validate/1, create/1, recover/2, delete/2, add_binding/2, remove_bindings/2,
-         assert_args_equivalence/2]).
+-rabbit_boot_step({?MODULE,
+                   [{description, "exchange type x-presence"},
+		    {mfa,         {rabbit_registry, register,
+				   [exchange, <<"x-presence">>, ?MODULE]}},
+                    {requires,    rabbit_registry},
+                    {enables,     kernel_ready}]}).
+
+-export([description/0, route/2]).
+-export([validate/1, create/2, recover/2, delete/3, add_binding/3,
+	 remove_bindings/3, assert_args_equivalence/2]).
 
 encode_binding_delivery(DeliveryXName,
                         Action,
-                        #binding{exchange_name = #resource{name = XName},
+                        #binding{source = #resource{name = XName},
                                  key = BindingKey,
-                                 queue_name = #resource{name = QName}}) ->
+                                 destination = #resource{name = QName}}) ->
     Headers = [{<<"action">>, longstr, atom_to_list(Action)},
                {<<"exchange">>, longstr, XName},
                {<<"queue">>, longstr, QName},
                {<<"key">>, longstr, BindingKey}],
     rabbit_basic:delivery(false, false, none,
-                          rabbit_basic:message(DeliveryXName, <<>>, [{headers, Headers}], <<>>)).
+                          rabbit_basic:message(
+			    DeliveryXName, <<>>, [{headers, Headers}], <<>>),
+			  undefined).
 
 description() ->
-    [{description, <<"Experimental Presence exchange">>}].
+    [{name, <<"x-presence">>},
+     {description, <<"Presence exchange">>}].
 
-publish(_Exchange, _Delivery) ->
-    [].
+route(#exchange{name = Name}, _Delivery) ->
+    rabbit_router:match_routing_key(Name, '_').
 
 validate(_X) -> ok.
-create(_X) -> ok.
+create(_Tx, _X) -> ok.
 recover(_X, _Bs) -> ok.
-delete(_X, _Bs) -> ok.
+delete(_Tx, _X, _Bs) -> ok.
 
-add_binding(X = #exchange{name = XName}, B) ->
-    _ = rabbit_exchange_type_fanout:publish(X, encode_binding_delivery(XName, bind, B)),
+add_binding(_Tx, #exchange{name = XName}, B) ->
+    rabbit_basic:publish(encode_binding_delivery(XName, bind, B)),
     ok.
 
-remove_bindings(X = #exchange{name = XName}, Bs) ->
-    _ = [rabbit_exchange_type_fanout:publish(X, encode_binding_delivery(XName, unbind, B))
+remove_bindings(_Tx, #exchange{name = XName}, Bs) ->
+    _ = [rabbit_basic:publish(encode_binding_delivery(XName, unbind, B))
          || B <- Bs],
     ok.
 
